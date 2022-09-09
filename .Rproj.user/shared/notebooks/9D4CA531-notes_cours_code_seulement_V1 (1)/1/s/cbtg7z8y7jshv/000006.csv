@@ -1,0 +1,7 @@
+"0","# Il est possible d'avoir plus d'information avec ce package (non exécuté)"
+"0","  library(summarytools)"
+"2","Error: package or namespace load failed for ‘summarytools’:
+ .onLoad failed in loadNamespace() for 'tcltk', details:
+  call: fun(libname, pkgname)
+  error: X11 library is missing: install XQuartz from www.xquartz.org
+"

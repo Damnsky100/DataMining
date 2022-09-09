@@ -1,0 +1,10 @@
+"0",""
+"0","# R"
+"0",""
+"0","# répertoire où se trouvent les fichiers"
+"0","pa=""~/Desktop/Data_Mining/"""
+"0",""
+"0","# Importations des données"
+"0","datrain=read.csv(paste(pa,""train.csv"",sep=""""),header=TRUE)"
+"2","Error in file(file, ""rt"") : cannot open the connection
+"

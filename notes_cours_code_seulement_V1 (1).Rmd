@@ -54,23 +54,34 @@ pa="~/Desktop/Data_Mining/"
 churntrain=read.table(paste(pa,"churn_data_train.txt",sep=""),header=TRUE)
 churntest=read.table(paste(pa,"churn_data_test.txt",sep=""),header=TRUE)
 
+
+
 dim(churntrain)
 dim(churntest)
-
+```
+```{r echo=TRUE, warning=FALSE}
 # Pour voir les premières lignes du fichier d'entrainement
 head(churntrain)
+```
 
+```{r echo=TRUE, warning=FALSE}
 # On combine les deux fichiers afin d'avoir un résumé de toutes les données
 churn=rbind(churntrain,churntest)
 
 # La fonction "summary" permet d'avoir des informations de base (non exécuté)
-# summary(churn)
+  summary(churn)
+```
 
+```{r echo=TRUE, warning=FALSE}
 # Il est possible d'avoir plus d'information avec ce package (non exécuté)
-# library(summarytools)
+  library(summarytools)
 
 # Pour obtenir un résumé des données directement en format html (non exécuté)
-# view(dfSummary(churn))
+  view(dfSummary(churn))
+```
+
+
+```{r echo=TRUE, warning=FALSE}
 
 # Le résultat se trouve dans le fichier "summarychurn.html" 
 #    fourni avec le matériel du cours

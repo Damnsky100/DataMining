@@ -1,0 +1,104 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+
+Read Data
+```{r}
+# répertoire où se trouvent les fichiers
+pa="~/Desktop/Data_Mining/First_Homework/"
+
+
+datrain=read.csv(paste(pa,"train.csv",sep=""),header=TRUE)
+datest=read.csv(paste(pa,"test.csv",sep=""),header=TRUE)
+
+dim(datrain)
+dim(datest)
+
+head(datrain)
+
+```
+
+
+
+```{r}
+#Naive estimate (Generate 1 everywhere)
+#predic = nrow(datrain[datrain$y == 1,])/nrow(datrain)
+#predic
+
+df_Naive = data.frame("id"=datest$id, "y"= 1)
+write.csv(df_Naive,paste(pa,"naive.csv"),row.names = FALSE)
+
+
+
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+#Basic Linear regression
+reg_basic = lm(formula = datrain$y ~., data= datrain)
+summary(reg_basic)
+
+# Obtenir les prédicions (probabilité estimées) sur les données test
+predic_reg = predict(reg_basic, newdata = datest$y)
+df_reg_data = ceiling(predic_reg)
+df_reg = data.frame("id"=datest$id, "y"= df_reg_data)
+write.csv(df_reg,paste(pa,"reg_benchmark.csv"),row.names = FALSE)
+```
+
+
+
+```{r}
+#Laso regression
+lambdas <- 10^seq(2, -3, by = -.1)
+x = data.matrix(datrain[,1:16])
+ytrain = datrain$y
+
+# Setting alpha = 1 implements lasso regression
+lasso_reg <- cv.glmnet(x, ytrain, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5)
+
+# Best 
+lambda_best <- lasso_reg$lambda.min 
+lambda_best
+plot(lasso_reg)
+
+```
+
+
+```{r}
+#Lastly, we can analyze the final model produced by the optimal lambda value
+#find coefficients of best model
+lasso_reg = glmnet(x, ytrain, alpha =1, lambda = lambda_best)
+coef(lasso_reg)
+
+
+# We want to predic on our test data
+x_test = data.matrix(datest[,1:16])
+predic_lasso = predict(lasso_reg, s = lambda_best, newx = x_test)
+summary(predic_lasso)
+```
+

@@ -1,0 +1,3 @@
+"0","legend(""topright"", legend = c(""Entrainement"", ""Validation-croisée""), col = 1:2, lty=1:2, pt.cex = 2, "
+"0"," cex = 1.0,  text.col = ""black"",  horiz = F ,  inset = c(0.1, 0.1))"
+"0",""
