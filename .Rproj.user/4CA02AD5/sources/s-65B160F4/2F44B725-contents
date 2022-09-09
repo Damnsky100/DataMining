@@ -1,0 +1,2275 @@
+---
+title: "Techniques d'exploitation de données (code seulement)"
+author: "Denis Larocque &copy;"
+extra_dependencies:
+- tikz
+- graphicx
+fontsize: 12pt
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: '4'
+    latex_engine: xelatex    
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: '4'
+  revealjs_presentation:   
+    slide_level: 2   
+  beamer_presentation:
+    slide_level: 3
+    toc: true
+    theme: "AnnArbor"
+    latex_engine: xelatex   
+  slidy_presentation:
+    slide_level: 2
+    number_sections: yes
+    toc: yes
+    toc_depth: '4'
+  ioslides_presentation:
+    slide_level: 2     
+link-citations: yes
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Exemple de classification avec les données churn
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# répertoire où se trouvent les fichiers
+pa="~/Desktop/Data_Mining/"
+
+# Importations des données
+churntrain=read.table(paste(pa,"churn_data_train.txt",sep=""),header=TRUE)
+churntest=read.table(paste(pa,"churn_data_test.txt",sep=""),header=TRUE)
+
+dim(churntrain)
+dim(churntest)
+
+# Pour voir les premières lignes du fichier d'entrainement
+head(churntrain)
+
+# On combine les deux fichiers afin d'avoir un résumé de toutes les données
+churn=rbind(churntrain,churntest)
+
+# La fonction "summary" permet d'avoir des informations de base (non exécuté)
+# summary(churn)
+
+# Il est possible d'avoir plus d'information avec ce package (non exécuté)
+# library(summarytools)
+
+# Pour obtenir un résumé des données directement en format html (non exécuté)
+# view(dfSummary(churn))
+
+# Le résultat se trouve dans le fichier "summarychurn.html" 
+#    fourni avec le matériel du cours
+
+# Proportion de chaque classe dans l'échantillon d'entrainement
+table(churntrain$Churn.Value)/nrow(churntrain)
+
+
+# Proportion de chaque classe dans l'échantillon de test
+table(churntest$Churn.Value)/nrow(churntest)
+
+# Régression logistique
+
+# Ajuster le modèle sur les données d'entrainement
+logitchurn= glm( Churn.Value~.,data=churntrain, family = binomial)
+
+# Tableau des coefficients
+summary(logitchurn)$coef
+
+# Obtenir les prédicions (probabilité estimées) sur les données test
+predlogitchurn=predict(logitchurn,newdata=churntest,type="response")
+predlogitchurn[1:10]
+
+# Prédiction (0-1) avec un point de coupure de 0,5
+predlogitchurn01=as.numeric(predlogitchurn>.5)
+predlogitchurn01[1:10]
+
+# Taux de bonne classification
+mean(predlogitchurn01==churntest$Churn.Value)
+
+# Data frame qui va contenir les résultats pour tous les modèles
+
+reschurn = data.frame(rbind(c(mean(0==churntest$Churn.Value),1-mean(0==churntest$Churn.Value)),
+            c(mean(predlogitchurn01==churntest$Churn.Value),
+              1-mean(predlogitchurn01==churntest$Churn.Value))))
+
+# TBC = taux de bonne classification.
+# TMC = taux de mauvaise classification = 1 - TBC.
+
+names(reschurn) = c("TBC","TMC")
+row.names(reschurn)=c("Naïve","Régression logistique")
+
+reschurn
+
+
+# Initialisation du générateur de nombre aléatoire afin que les résulats soit les 
+# mêmes d'une fois à l'autre. Il n'y a rien d'aléatoire dans la construction de l'arbre
+# lui-même mais l'élagage est fait avec une procédure de validation-croisée qui 
+# comporte un élément aléatoire. 
+set.seed(3454)
+
+library(rpart)
+
+# Construction de l'arbre initial.
+
+# Différentes options pour contrôler la taille de l'arbre sont dans "rpart.control".
+# Ici, "xval=10" demande d'utiliser la validation-croisée à 10 groupes pour faire l'élagage.
+# "minsplit=20" indique qu'il faut au moins 20 observations pour diviser un noeud.
+# "minbucket = 7" indique qu'un noeud enfant doit contenir au moins 7 observations.
+# Le "cp" permet de contrôler la construction de l'arbre en ne divisant pas un noeud 
+# s'il n'améliore pas suffisamment le modèle. Cela permet de diminuer le temps de calcul 
+# en coupant d'avance des branches qui risqueraient d'être éliminées dans l'élagage. 
+# En le mettant à 0, comme ici, on permet à l'arbre de se construire jusqu'au bout et ce 
+# sont seulement les autres paramètres qui contrôlent la taille de l'arbre.
+
+treechurn = rpart(Churn.Value~. , data=churntrain,method="class" ,
+    control = rpart.control(xval = 10, minsplit=20, minbucket=7,cp=0))
+
+# Nombre de noeuds terminaux dans l'arbre
+length(unique(treechurn$where))
+
+treechurn$cptable
+
+matplot(treechurn$cptable[,2],treechurn$cptable[,3:4],type="l", xlab="Nombre de splits", ylab="Erreur relative")
+legend("topright", legend = c("Entrainement", "Validation-croisée"), col = 1:2, lty=1:2, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# La fonction "prune" permet d'élaguer l'arbre
+#  à une valeur donnée du paramètre de complexité
+#  (le alpha). 
+
+treeprunedchurn=prune(treechurn,
+  cp=treechurn$cp[which.min(treechurn$cp[,"xerror"]),"CP"])
+
+# Afin d'obtenir le graphe de l'arbre élagué
+library(rpart.plot) 
+
+rpart.plot(treeprunedchurn)
+
+# Par défaut, "predict" retourne les estimations des probabilités de chaque classe
+predtreeprunedchurn=predict(treeprunedchurn,newdata=churntest)
+predtreeprunedchurn[1:10,]
+
+# Avec l'argument, "type=class", on obtient directement la classe prédite, celle avec 
+# la probabilité la plus élévée. Ceci revient à utiliser un point de coupure
+#  de 0,5 pour un réponse binaire comme ici.
+predict(treeprunedchurn,newdata=churntest,type="class")[1:10]
+
+# Boxplot des probabilités estimées par le modèle selon la vraie valeur de Y.
+boxplot(predtreeprunedchurn[,2]~churntest$Churn.Value, xlab="Vraie valeur", ylab="Probabilité estimée")
+
+# Pour obtenir les prédictions (0-1) à partir des probabilités estimées
+
+predtreeprunedchurn01=as.numeric(predtreeprunedchurn[,2]>.5)
+table(predtreeprunedchurn01)
+
+# Taux de bonne classification
+mean(predtreeprunedchurn01==churntest$Churn.Value)
+  
+# Tableau croisée entre les prédictions et les vraies valeurs
+table(predtreeprunedchurn01,churntest$Churn.Value)
+
+# Pour obtenir un tableau croisé avec plus de détails
+library(gmodels)
+CrossTable(predtreeprunedchurn01,churntest$Churn.Value)
+
+# Pour ajouter les résultats au data frame qui compile tous les modèles
+
+reschurn=rbind(reschurn, "Arbre (rpart)" = c(mean(predtreeprunedchurn01==churntest$Churn.Value),
+      1-mean(predtreeprunedchurn01==churntest$Churn.Value)))
+
+reschurn
+
+
+```
+
+\newpage
+
+
+## Exemple de régression avec les données de jeux en ligne
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# répertoire où se trouvent les fichiers
+pa="d:/11000347/Desktop/nouvelle_version_6600_A2022/data/"
+
+# Importations des données
+mobiletrain=read.table(paste(pa,"clv_mobile_data_train.txt",sep=""),header=TRUE)
+mobiletest=read.table(paste(pa,"clv_mobile_data_test.txt",sep=""),header=TRUE)
+
+dim(mobiletrain)
+dim(mobiletest)
+
+# Pour voir les premières lignes du fichier d'entrainement
+
+head(mobiletrain)
+
+# Convertir "difflevel" et "country" en facteurs.
+mobiletrain$difflevel=factor(mobiletrain$difflevel)
+mobiletrain$country=factor(mobiletrain$country)
+mobiletest$difflevel=factor(mobiletest$difflevel)
+mobiletest$country=factor(mobiletest$country)
+
+# On combine les deux fichiers afin d'avoir un résumé de toutes les données
+mobile=rbind(mobiletrain,mobiletest)
+
+# Pour obtenir un résumé des données directement en format html (non exécuté)
+# library(summarytools)
+# view(dfSummary(mobile))
+
+# Le résultat se trouve dans le fichier "summarymobile.html" 
+#    fournit avec le matériel du cours
+
+# fonction pour calculer la performance
+
+perfcont=function(y,pred,ybartrain,name)
+{
+# y = vraies valeurs de l'échantillon test
+# pred = prédictions de l'échantillon test
+# ybartrain = moyenne de Y dans l'échantillon d'entrainement
+# name = nom de la méthode
+# output : data frame avec une ligne et les valeurs de
+#       MSE, R2, MAE et MAPE
+
+out=data.frame(mean((y-pred)^2),
+1-sum((y-pred)^2)/sum((y-ybartrain)^2),               
+mean(abs(y-pred)),
+100*mean(abs(y-pred)/abs(y)))
+names(out)=c("MSE","R2","MAE","MAPE")
+row.names(out)=name
+out
+}
+
+
+# Le data frame "resmobile" va contenir les valeurs des critères de
+# performance pour les différents modèles.
+
+# Performance pour le premier benchmark qui utilise la moyenne de Y
+resmobile = perfcont(mobiletest$y,mean(mobiletrain$y),
+                     mean(mobiletrain$y),c("moyenne de Y"))
+
+# Performance pour le second benchmark qui utilise la médiane de Y
+
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,median(mobiletrain$y),
+         mean(mobiletrain$y),c("médiane de Y"))                
+                ) 
+
+mean(mobiletrain$y)
+median(mobiletrain$y)
+resmobile
+
+# Régression linéaire simple avec toutes les variables
+mobrl=lm(y~.,data=mobiletrain)
+
+# Voir page suivante pour la sortie
+summary(mobrl)
+
+# Prédiction sur les données test
+predmobrl=predict(mobrl,newdata=mobiletest)
+
+# Performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predmobrl,mean(mobiletrain$y),
+         c("Régression linéaire"))                
+                ) 
+
+resmobile
+
+
+# Modèle de régression en incluant les carrés et les interactions d'ordre 2
+mobrlint=lm(y~(.)^2 + I(numsessions^2) + I(numdays^2) + I(numpurchases^2) + 
+      I(totpurchases^2) + I(totplaytime^2) + I(totscore^2) + I(numlives^2) + 
+        I(numelements^2)  + I(skill1^2) + I(skill2^2) + I(trendsession^2) + 
+        I(trendpurchase^2) ,data=mobiletrain)
+
+# Prédiction sur les données test
+predmobrlint=predict(mobrlint,newdata=mobiletest)
+
+# Performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predmobrlint,mean(mobiletrain$y),
+         c("Rég lin (carrés et inter d'ordre 2)"))                
+                ) 
+
+resmobile
+
+# Initialisation du générateur de nombre aléatoire
+set.seed(5743)
+
+library(rpart)
+
+# Construction de l'arbre initial.
+# La seule différence par rapport à l'exemple
+#   précédent est l'argument method="anova",
+#   qui va utiliser le critère des moindres
+#   carrés.
+
+treemob=rpart(y~.,data=mobiletrain,method="anova",
+  control = rpart.control(xval = 10, minsplit=20, minbucket = 7,cp=0))
+
+# Nombre de noeuds terminaux dans l'arbre initial
+length(unique(treemob$where))
+
+# Élagage de l'arbre
+treeprunedmob=prune(treemob,
+    cp=treemob$cp[which.min(treemob$cp[,"xerror"]),"CP"])
+# Nombre de noeuds terminaux dans l'arbre élagué
+length(unique(treeprunedmob$where))
+
+# Comme l'arbre élagué est encore très grand, on
+#  montre ici seulement le début de l'arbre avec
+#  11 noeuds terminaux
+treeprunedmobsub=prune(treemob,
+          cp=treemob$cp[which.min(abs(treemob$cp[,"nsplit"]-10)),"CP"])
+rpart.plot(treeprunedmobsub, digits=4)
+
+
+datemp1=mobiletrain[order(mobiletrain$totpurchases),]
+fit=loess(datemp1$y~datemp1$totpurchases)
+plot(mobiletrain$totpurchases,mobiletrain$y,xlab="totpurchases",ylab="y")
+lines(datemp1$totpurchases,predict(fit),type="l",col="red")
+
+
+# Obtenir les prédictions pour l'échantillon test
+predtreeprunedmob=predict(treeprunedmob,newdata=mobiletest)
+
+# Performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predtreeprunedmob,mean(mobiletrain$y),
+         c("Arbre (rpart)"))                
+                ) 
+
+resmobile
+
+
+
+# Obtenir la performance pour l'échantillon test avec
+#  le sous-arbre qui contient 11 noeuds terminaux
+
+perfcont(mobiletest$y,
+      predict(treeprunedmobsub,newdata=mobiletest),
+      mean(mobiletrain$y),
+      c("sous-arbre (non-optimal)"))                
+                
+
+```
+
+
+\newpage 
+ 
+
+## Exemple de classification avec les données churn (suite)
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE }
+
+# R
+
+# package qui peut produire' entre autre, la courbe ROC et celle des gains cumulés
+
+library(ROCR)
+
+# Nous allons le faire pour l'arbre comme exemple.
+
+predroctree=prediction(predtreeprunedchurn[,2],churntest$Churn.Value)
+
+# Courbe ROC
+treeroc=performance(predroctree,"tpr","fpr")
+plot(treeroc,main="Courbe ROC")
+abline(a=0,b=1)
+
+# AUC
+performance(predroctree,"auc")@y.values[[1]]
+
+
+# Courbe des gains cumulés
+treecumgain=performance(predroctree,"tpr","rpp")
+plot(treecumgain,main="Courbe des gains cumulés")
+abline(a=0,b=1)
+abline(v=.2)
+
+predroclogit=prediction(predlogitchurn,churntest$Churn.Value)
+
+reschurn$Brier=c(NA,mean((predlogitchurn-churntest$Churn.Value)^2),
+              mean((predtreeprunedchurn[,2]-churntest$Churn.Value)^2))
+
+reschurn$AUC=c(NA,performance(predroclogit,"auc")@y.values[[1]],
+               performance(predroctree,"auc")@y.values[[1]])
+
+reschurn
+
+logitroc=performance(predroclogit,"tpr","fpr")
+plot(treeroc,main="Courbe ROC")
+plot(logitroc,add=TRUE,col=2)
+abline(a=0,b=1)
+legend("bottomright", legend = c("Arbre", "Régression logistique"), col = 1:2, lty=1:1, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+
+```
+
+
+
+\newpage
+
+   
+
+## Exemple de classification avec les données churn (suite)
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# Forêt aléatoire avec le package ranger.
+library(ranger)
+set.seed(3453)
+
+# L'argument "probability = TRUE" fait en sorte que la RF va retourner des probabilités estimées
+#   et pas seulement des prédictions selon la classe majoritaire. L'argument
+#   "respect.unordered.factors="partition"" fait en sorte que les splits sur les variables
+#   catégorielles sont faits sur les sous-ensembles.
+
+rfchurn=ranger(Churn.Value~., data=churntrain, probability = TRUE, 
+        importance="permutation", respect.unordered.factors="partition")
+rfchurn
+
+
+# Calcul des prédictions pour les données test. Ici, on obtient les probabilités estimées.
+
+predrfchurn=predict(rfchurn,data=churntest)
+predrfchurn[[1]][1:10,]
+
+# Calcul des prédictions 0-1
+predrfchurn01=as.numeric(predrfchurn[[1]][,2]>.5)
+predrfchurn01[1:10]
+
+# Boxplot des probabilités estimées par le modèle selon la vraie valeur de Y.
+boxplot(predrfchurn[[1]][,2]~churntest$Churn.Value,
+        xlab="Vraie valeur", ylab="Probabilité estimée")
+
+# Tableau croisée entre les prédictions et les vraies valeurs
+CrossTable(predrfchurn01,churntest$Churn.Value)
+
+# Taux de bonne classification.
+mean(predrfchurn01==churntest$Churn.Value)
+
+# Importance des variables (VIMP). Seulement les 4 premières sont montrées.
+importance(rfchurn)[1:4]
+
+# Pour faire une graphe des VIMP
+library(vip)
+
+vip(rfchurn,num_features=38)
+
+# Ajoutons les résultats (TBC, AUC, Brier etc.) à ceux des autres modèles
+
+predrocrf=prediction(predrfchurn[[1]][,2],churntest$Churn.Value)
+
+reschurn=rbind(reschurn,"RF (ranger)"=c(mean(predrfchurn01==churntest$Churn.Value),
+                      1-mean(predrfchurn01==churntest$Churn.Value),
+                    mean((predrfchurn[[1]][,2]-churntest$Churn.Value)^2),
+                    performance(predrocrf,"auc")@y.values[[1]]))
+
+reschurn
+
+```
+
+  
+\newpage
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# Forêt aléatoire avec le package ranger.
+
+library(ranger)
+
+set.seed(3453)
+
+rfmobile=ranger(y~.,data=mobiletrain,importance="permutation",
+        respect.unordered.factors="partition")
+rfmobile
+
+# Obtenir les prédictions pour l'échantillon test
+predrfmobile=predict(rfmobile,data=mobiletest)[[1]]
+
+# Performance 
+
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predrfmobile,mean(mobiletrain$y),
+         c("RF (ranger)"))                
+                ) 
+
+resmobile
+
+# Pour faire une graphe des VIMP
+library(vip)
+
+vip(rfmobile,num_features=16)
+
+
+```
+
+
+\newpage
+
+
+
+
+## Exemple de classification avec les données churn (suite)
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# Fonction pour convertir une variable "character" en "integer"
+convertcharint=function(x)
+{
+if(!is.character(x)) {return(x)}
+if(is.character(x))
+{
+un=unique(x)
+ind=as.integer(sapply(x,function(a){which(a==un)}))
+}
+ind
+}
+
+# Petit exemple
+x=c("a","b","a","c")
+convertcharint(x)
+
+# Noms des variables à traiter comme catégorielles
+namescatchurn=names(churntrain)[sapply(churntrain, class)=="character"]
+namescatchurn
+
+# Création d'une version des données pour lightgbm
+ntrain=nrow(churntrain)
+ntest=nrow(churntest)
+churn=rbind(churntrain,churntest)
+
+# Conversion des "character" en "integer"
+churnint=as.data.frame(sapply(churn,convertcharint))
+churninttrain=churnint[1:ntrain,]
+churninttest=churnint[(ntrain+1):(ntrain+ntest),]
+
+# La variable cible ne doit pas être dans le même objet
+#  que les variables explicatives
+churninttrain=subset(churninttrain, select = -c(Churn.Value) )
+churninttest=subset(churninttest, select = -c(Churn.Value) )
+
+# Fonction pour standardiser les données.
+stdf=function(dat1,dat2)
+{
+# input:
+# dat1 = data frame à standardiser avec ses propres moyennes et SD 
+# dat2 = data frame à standardiser en utilisant les moyennes et SD du premier
+
+# output = liste avec les 2 data frames standardisés 
+
+mu=apply(dat1,2,mean)
+std=apply(dat1,2,sd)
+list(as.data.frame(scale(dat1, center=mu , scale=std)),
+as.data.frame(scale(dat2, center=mu , scale=std)))
+
+}
+
+
+# Pour trouver le nombre d'itérations
+
+# Division de l'échantillon en 2
+set.seed(3492)
+indlgb=sample(3000,replace=FALSE)
+lgbchurntraintrain=churninttrain[indlgb[1:2500],]
+lgbchurntrainvalid=churninttrain[indlgb[2501:3000],]
+lgbchurnytraintrain=churntrain$Churn.Value[indlgb[1:2500]]
+lgbchurnytrainvalid=churntrain$Churn.Value[indlgb[2501:3000]]
+
+# Standardisation des données
+outstd=stdf(lgbchurntraintrain[,!(names(lgbchurntraintrain) %in% namescatchurn)],
+            lgbchurntrainvalid[,!(names(lgbchurntrainvalid) %in% namescatchurn)])
+
+lgbchurntraintrain=cbind(lgbchurntraintrain[,(names(lgbchurntraintrain) %in% namescatchurn)],outstd[[1]])
+lgbchurntrainvalid=cbind(lgbchurntrainvalid[,(names(lgbchurntrainvalid) %in% namescatchurn)],outstd[[2]])
+
+
+library(lightgbm)
+
+# Création d'un fichier d'entrainement dans le bon format pour lightgbm
+lgbchurntraintrain1=lgb.Dataset(as.matrix(lgbchurntraintrain),
+              categorical_feature=namescatchurn,label=lgbchurnytraintrain)
+
+
+# Entrainement du modèle jusqu'à 150 itérations
+set.seed(3542)
+modelchurn150 <- lgb.train( params = list(objective = "binary",metric = 'binary_logloss'), 
+   data = lgbchurntraintrain1, nrounds = 150L,
+    categorical_feature = namescatchurn)
+
+# Extraction des prédictions et calcul du Brier score
+#  pour les itérations de 2 à 150, par saut de 5.
+reslgb=c(0,0)
+for( i in seq(5,150,2))
+{
+predi=predict(modelchurn150,as.matrix(lgbchurntrainvalid),num_iteration=i)
+reslgb=rbind(reslgb,c(i,mean((predi-lgbchurnytrainvalid)^2)))
+}
+reslgb=reslgb[-1,]
+# Évolution du Brier score
+plot(reslgb[,1],reslgb[,2],xlab="Nombre d'itérations",ylab="Brier score",type="b")
+
+# Nombre d'itérations avec le Brier score le plus petit
+reslgb[which.min(reslgb[,2]),]
+
+
+# Standardisation des données
+outstd=stdf(churninttrain[,!(names(churninttrain) %in% namescatchurn)],
+            churninttest[,!(names(churninttest) %in% namescatchurn)])
+
+churninttrain=cbind(churninttrain[ , (names(churninttrain) %in% namescatchurn)] , outstd[[1]])
+churninttest=cbind(churninttest[ , (names(churninttest) %in% namescatchurn)] , outstd[[2]])
+
+
+# Création d'un fichier d'entrainement dans le bon format pour lightgbm
+lgbchurntrain=lgb.Dataset(as.matrix(churninttrain),categorical_feature=namescatchurn,
+                           label=churntrain$Churn.Value)
+
+# Entrainement du modèle jusqu'à 49 itérations
+modelchurn49 <- lgb.train( params = list(objective = "binary"), 
+  data = lgbchurntrain, nrounds = 49L,
+  categorical_feature = namescatchurn
+)
+
+# Prédictions sur les données test
+predchurnlgbm=predict(modelchurn49,as.matrix(churninttest))
+predchurnlgbm01=as.numeric(predchurnlgbm>.5)
+
+# Critères de performance
+predroclgbm=prediction(predchurnlgbm,churntest$Churn.Value)
+
+
+reschurn=rbind(reschurn,"Boosting (lightgbm)"=c(mean(predchurnlgbm01==churntest$Churn.Value),
+  1-mean(predchurnlgbm01==churntest$Churn.Value),
+  mean((predchurnlgbm-churntest$Churn.Value)^2),
+  performance(predroclgbm,"auc")@y.values[[1]]))
+
+reschurn
+
+```
+
+\newpage
+
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+```{r echo=TRUE,warning=FALSE, message=FALSE}
+
+# Noms des variables catégorielles
+namescatmobile=c("country","difflevel")
+
+# On retire la variable cible
+lgbmobiletrain1=subset(mobiletrain, select = -c(y) )
+
+ntrain=nrow(mobiletrain)
+ntest=nrow(mobiletest)
+
+# Pour trouver nombre d'itérations
+
+indlgb=sample(5000,replace=FALSE)
+lgbmobiletraintrain=lgbmobiletrain1[indlgb[1:4000],]
+lgbmobiletrainvalid=lgbmobiletrain1[indlgb[4001:5000],]
+lgbmobileytraintrain=mobiletrain$y[indlgb[1:4000]]
+lgbmobileytrainvalid=mobiletrain$y[indlgb[4001:5000]]
+
+# Standardisation des données
+outstd=stdf(lgbmobiletraintrain[,!(names(lgbmobiletraintrain) %in% namescatmobile)],
+            lgbmobiletrainvalid[,!(names(lgbmobiletrainvalid) %in% namescatmobile)])
+
+lgbmobiletraintrain=cbind(lgbmobiletraintrain[,(names(lgbmobiletraintrain) %in% namescatmobile)],outstd[[1]])
+lgbmobiletrainvalid=cbind(lgbmobiletrainvalid[,(names(lgbmobiletrainvalid) %in% namescatmobile)],outstd[[2]])
+
+# Création du fichier dans le format lightgbm
+lgbmobiletraintrain1=lgb.Dataset(as.matrix(lgbmobiletraintrain),
+            categorical_feature=namescatmobile,label=lgbmobileytraintrain)
+
+# Entrainement du modèle jusqu'à 400 itérations
+
+modelmobile400 <- lgb.train( params = list(objective = "regression",metric = 'mse'), 
+   data = lgbmobiletraintrain1, nrounds = 400L,
+  categorical_feature = namescatmobile)
+
+
+# Extraction des prédictions et calcul du MSE
+#  pour les itérations de 30 à 400, par saut de 5.
+
+reslgb=c(0,0)
+for( i in seq(30,400,5))
+{
+predi=predict(modelmobile400,as.matrix(lgbmobiletrainvalid),num_iteration=i)
+reslgb=rbind(reslgb,c(i,mean((predi-lgbmobileytrainvalid)^2)))
+}
+reslgb=reslgb[-1,]
+plot(reslgb[,1],reslgb[,2],xlab="Nombre d'itérations",ylab="MSE",type="b")
+
+# Nombre d'itérations avec le MSE le plus petit
+reslgb[which.min(reslgb[,2]),]
+
+# Standardisation des données
+
+mobiletest1=subset(mobiletest, select = -c(y) )
+outstd=stdf(lgbmobiletrain1[,!(names(lgbmobiletrain1) %in% namescatmobile)],
+            mobiletest1[,!(names(mobiletest1) %in% namescatmobile)])
+
+lgbmobiletrain1=cbind(lgbmobiletrain1[ , (names(lgbmobiletrain1) %in% namescatmobile)] , outstd[[1]])
+mobiletest1=cbind(mobiletest1[ , (names(mobiletest1) %in% namescatmobile)] , outstd[[2]])
+
+# Création d'un fichier d'entrainement dans le bon format pour lightgbm
+lgbmobiletrain=lgb.Dataset(as.matrix(lgbmobiletrain1),categorical_feature=namescatmobile,label=mobiletrain$y)
+
+# Entrainement du modèle jusqu'à 135 itérations
+modelmobile135 <- lgb.train( params = list(objective = "regression",metric = 'mse'), 
+  data = lgbmobiletrain, nrounds = 135L,
+  categorical_feature = namescatmobile)
+
+# Prédictions sur les données test
+predmobilelgbm=predict(modelmobile135,as.matrix(mobiletest1))
+
+# Critères de performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predmobilelgbm,mean(mobiletrain$y),
+         c("Boosting (lightgbm)"))
+                ) 
+resmobile
+
+```
+
+
+\newpage
+
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+```{r echo=TRUE,warning=FALSE, message=FALSE}
+
+# R
+
+# Modèle de régression en incluant les carrés et les interactions d'ordre 2
+#  que nous avons déjà ajusté plus tôt.
+#mobrlint=lm(y~(.)^2 + I(numsessions^2) + I(numdays^2) + I(numpurchases^2) + 
+#        I(totpurchases^2) + I(totplaytime^2) + I(totscore^2) + I(numlives^2) + 
+#        I(numelements^2)  + I(skill1^2) + I(skill2^2) + I(trendsession^2) + 
+#        I(trendpurchase^2) ,data=mobiletrain)
+
+# Pour obtenir les IPs sur les données test
+prediprlint=predict(mobrlint,newdata=mobiletest,interval="prediction")
+prediprlint[1:5,]
+
+# Calcul du taux de couverture et de la longueur moyenne
+
+data.frame("taux de couverture"=mean(apply(cbind(mobiletest$y,prediprlint[,2:3]),1,
+                          function(a){(a[1]>=a[2])*(a[1]<=a[3])})),
+           "longueur moyenne"=mean(prediprlint[,3]-prediprlint[,2]))
+
+library(RFpredInterval)
+
+# Pour construire les IPs et aussi obtenir les prédictions
+#  de la forêt boostée. Notez que l'échantillon test est
+#  donné en argument dès maintenant.
+set.seed(4354)
+boostrf = pibf(formula = y~., traindata = mobiletrain,
+  testdata = mobiletest, calibration = "cv", numfolds = 5,
+  params_ranger = list(num.trees = 500,respect.unordered.factors="partition"))
+
+# Extraction des IPs des données test
+boostrfpi=cbind(boostrf$pred_interval$lower,boostrf$pred_interval$upper)
+boostrfpi[1:5,]
+
+# Calcul du taux de couverture et de la longueur moyenne
+data.frame("taux de couverture"=mean(apply(cbind(mobiletest$y,boostrfpi),1,
+                              function(a){(a[1]>=a[2])*(a[1]<=a[3])})),
+           "longueur moyenne"=mean(boostrfpi[,2]-boostrfpi[,1]))
+
+boostrf$test_pred[1:5]
+
+# Critères de performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,boostrf$test_pred,mean(mobiletrain$y),
+         c("One step boosted forest"))
+                ) 
+resmobile
+
+```
+
+
+\newpage
+
+
+## Exemple de classification avec les données churn (suite)
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE }
+
+# R
+
+# Rappelez-vous que namescatchurn contient les noms 
+#  des variables à traiter en catégorielles
+namescatchurn
+
+# On combine toutes les données afin de créer les indicatrices (one-hot encoding)
+
+library(dummies)
+allchurn=rbind(churntrain,churntest)
+allchurny=allchurn$Churn.Value
+# On retire la variable cible
+allchurnx=subset(allchurn, select = -c(Churn.Value) )
+# Création des indicatrices
+allchurnxdum=dummy.data.frame(allchurnx[,(names(allchurnx) %in% namescatchurn)])
+
+# Vérification
+allchurnxdum[1:2,1:21]
+
+# On ajoute les variables non-catégorielles
+allchurnxdum=cbind(allchurnx[,!(names(allchurnx) %in% namescatchurn)],allchurnxdum)
+  
+dim(allchurnxdum)
+
+# Division de l'échantillon en 2
+set.seed(54492)
+indlgb=sample(3000,replace=FALSE)
+kerchurntraintrain=allchurnxdum[indlgb[1:2500],]
+kerchurntrainvalid=allchurnxdum[indlgb[2501:3000],]
+kerchurnytraintrain=allchurny[indlgb[1:2500]]
+kerchurnytrainvalid=allchurny[indlgb[2501:3000]]
+
+# Standardisation des données
+outstd=stdf(kerchurntraintrain,kerchurntrainvalid)
+kerchurntraintrain=outstd[[1]]
+kerchurntrainvalid=outstd[[2]]
+
+library(reticulate)
+
+# Exemples d'installation de librairies à partir de R
+#   Il faut le faire une seule fois, c'est pourquoi
+#   les commandes sont en commentaires.
+
+# py_install("pandas")
+# py_install("numpy")
+# py_install("scikit-learn")
+
+# note: on n'a pas besoin de scikit-learn pour l'instant
+
+
+```
+
+
+
+
+
+```{python echo=TRUE, warning=FALSE, message=FALSE}
+
+# Python
+
+import numpy as np
+import tensorflow as tf
+import random as python_random
+import pandas as pd
+from pandas import Series, DataFrame
+
+# Ce qui suit provient de 
+
+#  https://keras.io/getting_started/faq/#how-can-i-obtain-reproducible-results-using-keras-during-development
+
+# et est nécessaire si on veut pouvoir reproduire les mêmes résultats à chaque fois
+#  qu'on exécute le code.
+
+
+# The below is necessary for starting Numpy generated random numbers
+# in a well-defined initial state.
+np.random.seed(123)
+
+# The below is necessary for starting core Python generated random numbers
+# in a well-defined state.
+python_random.seed(123)
+
+# The below set_seed() will make random number generation
+# in the TensorFlow backend have a well-defined initial state.
+# For further details, see:
+# https://www.tensorflow.org/api_docs/python/tf/random/set_seed
+tf.random.set_seed(1234)
+
+# Importation directe des données sous la forme d'un data frame panda
+tkerchurntraintrain=pd.DataFrame(data=r.kerchurntraintrain)
+tkerchurntrainvalid=pd.DataFrame(data=r.kerchurntrainvalid)
+tkerchurnytraintrain=pd.DataFrame(data=r.kerchurnytraintrain)
+tkerchurnytrainvalid=pd.DataFrame(data=r.kerchurnytrainvalid)
+
+# keras ne peut pas prendre un data frame panda comme entrée
+# On convertit les données en array numpy
+
+kerchurntraintrain=tkerchurntraintrain.to_numpy()
+kerchurntrainvalid=tkerchurntrainvalid.to_numpy()
+kerchurnytraintrain=tkerchurnytraintrain.to_numpy()
+kerchurnytrainvalid=tkerchurnytrainvalid.to_numpy()
+
+# On élimine les objets qui ne sont plus nécessaires
+#  pour libérer de la mémoire.
+del tkerchurntraintrain
+del tkerchurntrainvalid
+del tkerchurnytraintrain
+del tkerchurnytrainvalid
+
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras import regularizers
+
+# Définition du RN
+
+rnchurn=keras.Sequential([
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+        layers.Dropout(0.5),
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+        layers.Dropout(0.5),
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)), 
+        layers.Dropout(0.5),
+        layers.Dense(1,activation="sigmoid")
+])
+
+
+# Compilation du RN
+
+rnchurn.compile(optimizer="rmsprop",
+        loss="binary_crossentropy",
+        metrics=["accuracy"])
+
+# Entrainement du RN
+
+hisrnchurn=rnchurn.fit(kerchurntraintrain,
+          kerchurnytraintrain,
+          epochs=200,
+          batch_size=512,
+          validation_data=(kerchurntrainvalid,kerchurnytrainvalid),
+          verbose=0)
+
+# On extrait les résultats pour les retourner à R
+hist_dict = hisrnchurn.history
+
+```
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# On importe les résultats de python
+rnhist=py$hist_dict
+
+# Graphe de la perte en fonction de l'époque pour les données
+#  d'entrainement et de validation
+
+matplot(1:200,cbind(rnhist$loss,rnhist$val_loss),type="l",
+        xlab="epoch",ylab="loss")
+legend("topright", legend = c("entrainement", "validation"), pt.cex = 2,lty=1:2,col=1:2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# Graphe du taux de bonne classification en fonction de l'époque pour les données
+#  d'entrainement et de validation
+
+matplot(1:200,cbind(rnhist$accuracy,rnhist$val_accuracy),type="l",
+        xlab="epoch",ylab="accuracy")
+legend("bottomright", legend = c("entrainement", "validation"), pt.cex = 2, lty=1:2,col=1:2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# Époque avec le taux de bonne classification le plus élevé.
+which.max(rnhist$val_accuracy)
+
+# Pour entrainer le RN final avec toutes les données d'entrainement
+#   et obtenir les prédictions sur les données test.
+# On garde les mêmes noms que pour l'étape précédente pour faciliter le tout.
+
+kerchurntraintrain=allchurnxdum[1:3000,]
+kerchurntrainvalid=allchurnxdum[3001:7043,]
+kerchurnytraintrain=allchurny[1:3000]
+kerchurnytrainvalid=allchurny[3001:7043]
+
+# Standardisation des données
+outstd=stdf(kerchurntraintrain,kerchurntrainvalid)
+kerchurntraintrain=outstd[[1]]
+kerchurntrainvalid=outstd[[2]]
+
+
+
+```
+
+
+
+
+
+```{python echo=TRUE, warning=FALSE, message=FALSE}
+
+# Python
+
+
+tkerchurntraintrain=pd.DataFrame(data=r.kerchurntraintrain)
+tkerchurntrainvalid=pd.DataFrame(data=r.kerchurntrainvalid)
+tkerchurnytraintrain=pd.DataFrame(data=r.kerchurnytraintrain)
+tkerchurnytrainvalid=pd.DataFrame(data=r.kerchurnytrainvalid)
+
+kerchurntraintrain=tkerchurntraintrain.to_numpy()
+kerchurntrainvalid=tkerchurntrainvalid.to_numpy()
+kerchurnytraintrain=tkerchurnytraintrain.to_numpy()
+kerchurnytrainvalid=tkerchurnytrainvalid.to_numpy()
+
+del tkerchurntraintrain
+del tkerchurntrainvalid
+del tkerchurnytraintrain
+del tkerchurnytrainvalid
+
+rnchurn=keras.Sequential([
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+        layers.Dropout(0.5),
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+        layers.Dropout(0.5),
+        layers.Dense(32,activation="relu",kernel_regularizer=regularizers.l2(0.002)), 
+        layers.Dropout(0.5),
+        layers.Dense(1,activation="sigmoid")
+])
+
+rnchurn.compile(optimizer="rmsprop",
+        loss="binary_crossentropy",
+        metrics=["accuracy"])
+
+rnchurn.fit(kerchurntraintrain,
+            kerchurnytraintrain,
+            epochs=130,
+            batch_size=512,
+            verbose=0)
+
+
+# Prédictions pour les données test
+
+predrnchurn=rnchurn.predict(kerchurntrainvalid)
+
+
+```
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# On importe les prédictions de Python
+predchurnrn=as.numeric(py$predrnchurn)
+length(predchurnrn)
+
+predchurnrn01=as.numeric(predchurnrn>.5)
+
+# Critères de performance
+predrocrn=prediction(predchurnrn,churntest$Churn.Value)
+
+
+reschurn=rbind(reschurn,"Réseau de neurones (keras)"=c(mean(predchurnrn01==churntest$Churn.Value),
+  1-mean(predchurnrn01==churntest$Churn.Value),
+  mean((predchurnrn-churntest$Churn.Value)^2),
+  performance(predrocrn,"auc")@y.values[[1]]))
+
+reschurn
+
+
+
+```
+
+
+\newpage
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+# R
+
+# Rappelez-vous que namescatmobile contient le nom des variables
+#   à traiter comme catégorielles
+
+namescatmobile
+
+# On combine toutes les observations pour créer les indicatrices
+allmobile=rbind(mobiletrain,mobiletest)
+allmobiley=allmobile$y
+allmobilex=subset(allmobile, select = -c(y) )
+allmobilexdum=dummy.data.frame(allmobilex[,(names(allmobilex) %in% namescatmobile)],
+                        dummy.classes="ALL")
+
+allmobilexdum=cbind(allmobilex[,!(names(allmobilex) %in% namescatmobile)],allmobilexdum)
+  
+dim(allmobilexdum)
+length(allmobiley)
+
+# Division de l'échantillon en 2
+set.seed(54492)
+indlgb=sample(5000,replace=FALSE)
+kermobiletraintrain=allmobilexdum[indlgb[1:4000],]
+kermobiletrainvalid=allmobilexdum[indlgb[4001:5000],]
+kermobileytraintrain=allmobiley[indlgb[1:4000]]
+kermobileytrainvalid=allmobiley[indlgb[4001:5000]]
+
+# Standardisation des données
+outstd=stdf(kermobiletraintrain,kermobiletrainvalid)
+kermobiletraintrain=outstd[[1]]
+kermobiletrainvalid=outstd[[2]]
+
+
+```
+
+
+
+
+
+```{python echo=TRUE, warning=FALSE}
+
+# Python
+
+tkermobiletraintrain=pd.DataFrame(data=r.kermobiletraintrain)
+tkermobiletrainvalid=pd.DataFrame(data=r.kermobiletrainvalid)
+tkermobileytraintrain=pd.DataFrame(data=r.kermobileytraintrain)
+tkermobileytrainvalid=pd.DataFrame(data=r.kermobileytrainvalid)
+
+tkermobileytraintrain[0:2]
+tkermobiletraintrain.head()
+
+kermobiletraintrain=tkermobiletraintrain.to_numpy()
+kermobiletrainvalid=tkermobiletrainvalid.to_numpy()
+kermobileytraintrain=tkermobileytraintrain.to_numpy()
+kermobileytrainvalid=tkermobileytrainvalid.to_numpy()
+
+del tkermobiletraintrain
+del tkermobiletrainvalid
+del tkermobileytraintrain
+del tkermobileytrainvalid
+
+rnmobile=keras.Sequential([
+          layers.Dense(64,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+          layers.Dense(64,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+          layers.Dense(1)
+])
+
+rnmobile.compile(optimizer="rmsprop",
+          loss="mse",
+          metrics=["mae"])
+
+hisrnmobile=rnmobile.fit(kermobiletraintrain,
+            kermobileytraintrain,
+            epochs=350,
+            batch_size=256,
+            validation_data=(kermobiletrainvalid,kermobileytrainvalid),
+            verbose=0)
+
+hist_dict = hisrnmobile.history
+
+```
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+rnhist=py$hist_dict
+
+# Époque avec le plus petit MSE sur les données de validation
+which.min(rnhist$val_loss)
+
+matplot(1:350,cbind(rnhist$loss,rnhist$val_loss),type="l",
+        xlab="epoch",ylab="loss",ylim=c(0,100))
+legend("topright", legend = c("entrainement", "validation"), pt.cex = 2,lty=1:2,col=1:2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+matplot(1:350,cbind(rnhist$mae,rnhist$val_mae),type="l",
+        xlab="epoch",ylab="mae",ylim=c(0,6))
+legend("bottomright", legend = c("entrainement", "validation"), pt.cex = 2, lty=1:2,col=1:2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# Pour entrainer le RN final et obtenir les prédictions sur les données test
+# On garde les mêmes noms que pour l'étape précédente pour faciliter le tout.
+
+kermobiletraintrain=allmobilexdum[1:5000,]
+kermobiletrainvalid=allmobilexdum[5001:10000,]
+kermobileytraintrain=allmobiley[1:5000]
+kermobileytrainvalid=allmobiley[5001:10000]
+
+# Standardisation des données
+outstd=stdf(kermobiletraintrain,kermobiletrainvalid)
+kermobiletraintrain=outstd[[1]]
+kermobiletrainvalid=outstd[[2]]
+
+```
+
+
+
+
+```{python echo=TRUE, warning=FALSE}
+
+# Python
+
+tkermobiletraintrain=pd.DataFrame(data=r.kermobiletraintrain)
+tkermobiletrainvalid=pd.DataFrame(data=r.kermobiletrainvalid)
+tkermobileytraintrain=pd.DataFrame(data=r.kermobileytraintrain)
+tkermobileytrainvalid=pd.DataFrame(data=r.kermobileytrainvalid)
+
+
+kermobiletraintrain=tkermobiletraintrain.to_numpy()
+kermobiletrainvalid=tkermobiletrainvalid.to_numpy()
+kermobileytraintrain=tkermobileytraintrain.to_numpy()
+kermobileytrainvalid=tkermobileytrainvalid.to_numpy()
+
+del tkermobiletraintrain
+del tkermobiletrainvalid
+del tkermobileytraintrain
+del tkermobileytrainvalid
+
+rnmobile=keras.Sequential([
+          layers.Dense(64,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+          layers.Dense(64,activation="relu",kernel_regularizer=regularizers.l2(0.002)),
+          layers.Dense(1)
+])
+
+rnmobile.compile(optimizer="rmsprop",
+          loss="mse",
+          metrics=["mae"])
+
+rnmobile.fit(kermobiletraintrain,
+            kermobileytraintrain,
+            epochs=289,
+            batch_size=256,
+            verbose=0)
+
+predrnmobile=rnmobile.predict(kermobiletrainvalid)
+
+```
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+predmobilern=as.numeric(py$predrnmobile)
+length(predmobilern)
+
+# Performance
+resmobile=rbind(resmobile,
+perfcont(mobiletest$y,predmobilern,mean(mobiletrain$y),
+         c("Réseau de neurones (keras)"))                
+                ) 
+
+resmobile
+
+n=200
+
+set.seed(4234)
+x=runif(n)
+y=x+rnorm(n,sd=.08)
+
+plot(x,y)
+
+
+
+```
+
+
+\newpage
+
+ 
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE }
+
+# Pour faire une graphe des VIMP
+library(vip)
+
+vip(rfmobile,num_features=16)
+
+# Pour faire une graphe des VIMP avec iml pour le modèle lightgbm
+library(iml)
+
+# On doit d'abord définir la fonction qui sera utilisée pour calculer les
+#  prédictions
+iml_predict = function(X.model, newdata) {predict(X.model, as.matrix(newdata))}
+
+# Rappels:
+# modelmobile135 est l'objet qui contient le modèle que nous avons ajusté plus tôt.
+# lgbmobiletrain1 est le data frame avec les variables explicatives.
+# mobiletrain$y est le vecteur avec la variable cible
+exp_iml = Predictor$new(modelmobile135, data = lgbmobiletrain1, y = mobiletrain$y,
+    predict.function = iml_predict)
+
+# Calcul des VIMP. On prend une seule répétitions pour que ça aille plus
+#  vite. La fonction de perte L est le MSE.
+set.seed(45343)
+imp = FeatureImp$new(exp_iml, loss = "mse",compare="difference",n.repetitions =1)
+# Graphe des VIMP
+plot(imp)
+
+set.seed(233)
+n=100
+x1=runif(n)
+x2=runif(n)
+x3=x1/10+rnorm(n,sd=.01)
+x3=(x3-min(x3))/(max(x3)-min(x3))
+
+y=200*x1 + 100*x2 + 100*rnorm(n,sd=.05)
+datall=data.frame(y,x1,x2,x3)
+
+cor(cbind(y,x1,x2,x3))
+
+modall=lm(y~.,data=datall)
+
+
+summary(modall)
+
+# MSE du modèle complet
+ssall=mean(modall$resid^2)
+
+omitimp=rep(0,3)
+# Ajuster les modèle en retirant une variable à la fois
+for(i in 1:3)
+{
+dati=datall[which(names(datall) != paste("x",i,sep=""))]
+modi=lm(y~.,data=dati)
+omitimp[i]=mean(modi$resid^2)-ssall
+}
+omitimp=data.frame(omitimp)
+row.names(omitimp)=c("hausse de MSE en retirant x1","hausse de MSE en retirant x2",
+                       "hausse de MSE en retirant x3" )
+omitimp
+
+# calcul des VIMP selon les permutations
+iml_predict = function(X.model, newdata) {predict(X.model, newdata)}
+
+Xdatall = datall[which(names(datall) != "y")]
+
+exp_iml1 = Predictor$new(modall, data = Xdatall, y = datall$y,
+      predict.function = iml_predict)
+
+fi_iml = FeatureImp$new(exp_iml1, loss = "mse", n.repetitions = 10)
+
+plot(fi_iml)
+
+```
+
+\newpage
+
+## Exemples de profils ICE et graphes de dépendance partielles
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+# R
+gendatainter=function(n,rho,stde,sortx1=TRUE)
+{
+# n = sample size
+# rho = correlation between the generated normal predictors (x2 is binarized after that)
+# sqrte = standard deviation of the error term
+# sortx1 : if we want the data sorted according to x1 (easier for the examples)
+
+library(mvtnorm)
+p=3
+dat=data.frame(rmvnorm(n, mean = rep(0, p), sigma = rho*matrix(1,p,p)+diag(p)*(1-rho)))
+names(dat)=paste("x",1:p,sep="")
+
+dat$x1=pnorm(dat$x1)
+dat$x3=pnorm(dat$x3)
+
+dat$x2=as.numeric(dat$x2>.8)
+dat$y = -(dat$x1-.5)^2 + .2*dat$x2 + rnorm(n,sd=stde)
+if(sortx1)
+{
+dat=dat[order(dat$x1),]
+}
+
+dat
+}
+
+set.seed(7547)
+n=200
+rho=.4
+stde=0.02
+dat=gendatainter(n,rho,stde,TRUE)
+
+summary(dat)
+print("matrice de corrélation")
+cor(dat)
+
+dat$x2=factor(dat$x2)
+
+plot(dat$x1,dat$y,col=as.numeric(dat$x2),xlab="x1",ylab="y",pch=20)
+legend("bottom", legend = c("x2=0", "x2=1"), col = 1:2, pch=20, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+library(ranger)
+rangermodel = ranger(y~., data = dat,mtry=3)
+
+predranger=predict(rangermodel, data=dat)$predictions
+
+plot(dat$x1,dat$y,col=as.numeric(dat$x2),xlab="x1",ylab="y",pch=20)
+lines(dat$x1[dat$x2==0],predranger[dat$x2==0],type="l")
+lines(dat$x1[dat$x2==1],predranger[dat$x2==1],type="l")
+legend("bottom", legend = c("x2=0", "x2=1"), col = 1:2, pch=20, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# Fonction pour dire à iml comment extraire les prédictions d'un objet ranger 
+imlpredictranger = function(X.model, newdata) {predict(X.model, newdata)$predictions}
+
+# Fichier de données avec les variables explicatives seulement
+Xdat = dat[which(names(dat) != "y")]
+
+# Pour obtenir les VIMP
+expimlranger = Predictor$new(rangermodel, data = Xdat, y = dat$y,
+    predict.function = imlpredictranger)
+
+fiimlranger = FeatureImp$new(expimlranger, loss = "mse", n.repetitions = 10)
+plot(fiimlranger)
+
+# Profils ICE pour la centième observation seulement
+Xdat1=Xdat[100,]
+Xdat1
+
+# On débute avec le profil ICE de x1
+
+# On ajoute une 2ème ligne qui est la même que la 1ère 
+# sinon car iml demande qu'il y ait au moins 2 valeurs
+# différentes pour la variable d'intérêt.
+Xdat1=rbind(Xdat1,Xdat1)
+# On ajoute une petite valeur à la variable pour qu'elle soit différente.
+Xdat1$x1[2]=Xdat1$x1[2]+.00001
+
+expimlranger1 = Predictor$new(rangermodel, data = Xdat1, y = rep(dat$y[1],2),
+    predict.function = imlpredictranger)
+iceimlranger1 = FeatureEffect$new(expimlranger1, feature = "x1",
+                        method = "ice",grid.points=seq(0,1,.01))
+# Graphe ICE 
+plot(iceimlranger1,ylim=c(min(predranger),max(predranger)))
+
+
+# Maintenant le profil ICE pour x2
+# Comme x2 est catégorielle binaire, on le fait à la main.
+
+Xdat1$x1[2]=Xdat1$x1[1]
+Xdat1$x2[2]=1
+plot(0:1,predict(rangermodel, data=Xdat1)$predictions,
+     ylim=c(min(predranger),max(predranger)),xlab="x2",ylab="prediction")
+
+# Profil ICE de x3
+Xdat1$x2[2]=0
+Xdat1$x3[2]=Xdat1$x3[2]+.00001
+expimlranger1 = Predictor$new(rangermodel, data = Xdat1, y = rep(dat$y[1],2),
+    predict.function = imlpredictranger)
+
+iceimlranger1 = FeatureEffect$new(expimlranger1,feature = "x3",
+                                   method = "ice", grid.points=seq(0,1,.01))
+
+plot(iceimlranger1,ylim=c(min(predranger)-.01,max(predranger)))
+
+# Pour obtenir les profils ICE de toutes les observations et les
+# graphes de dépendances partielles.
+# On utilise le fichie Xdat qui contient toutes les observations
+
+expimlranger = Predictor$new(rangermodel, data = Xdat, y = dat$y,
+    predict.function = imlpredictranger)
+
+cpimlrangerx1 = FeatureEffect$new(expimlranger,feature = "x1",method = "pdp+ice", grid.size = 101)
+plot(cpimlrangerx1)
+
+cpimlrangerx2 = FeatureEffect$new(expimlranger,feature = "x2",method = "pdp+ice", grid.size = 2)
+plot(cpimlrangerx2)
+
+cpimlrangerx3 = FeatureEffect$new(expimlranger,feature = "x3",method = "pdp+ice", grid.size = 101)
+plot(cpimlrangerx3)
+
+
+gendatainter1=function(n,rho,stde,sortx1=TRUE)
+{
+# n = sample size
+# rho = correlation between the generated normal predictors (x2 is binarized after that)
+# sqrte = standard deviation of the error term
+
+library(mvtnorm)
+p=3
+dat=data.frame(rmvnorm(n, mean = rep(0, p), sigma = rho*matrix(1,p,p)+diag(p)*(1-rho)))
+names(dat)=paste("x",1:p,sep="")
+
+dat$x1=pnorm(dat$x1)
+dat$x3=pnorm(dat$x3)
+
+dat$x2=as.numeric(dat$x2>.8)
+dat$y = 1+ (-(dat$x1-.5)^2)*(dat$x2==0) + (.4*dat$x1)*(dat$x2==1) - .35*dat$x2  + rnorm(n,sd=stde)
+if(sortx1)
+{
+dat=dat[order(dat$x1),]
+}
+
+dat
+}
+
+set.seed(7547)
+n=200
+rho=.4
+stde=0.02
+dat=gendatainter1(n,rho,stde,TRUE)
+
+dat$x2=factor(dat$x2)
+
+plot(dat$x1,dat$y,col=as.numeric(dat$x2),xlab="x1",ylab="y",pch=20)
+legend("bottom", legend = c("x2=0", "x2=1"), col = 1:2, pch=20, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+library(ranger)
+rangermodel = ranger(y~., data = dat,mtry=3)
+
+predranger=predict(rangermodel, data=dat)$predictions
+
+plot(dat$x1,dat$y,col=as.numeric(dat$x2),xlab="x1",ylab="y",pch=20)
+lines(dat$x1[dat$x2==0],predranger[dat$x2==0],type="l")
+lines(dat$x1[dat$x2==1],predranger[dat$x2==1],type="l")
+legend("bottom", legend = c("x2=0", "x2=1"), col = 1:2, pch=20, pt.cex = 2, 
+ cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+# Profils ICE de toutes les observations et 
+# graphes de dépendance partielle pour x1.
+
+Xdat = dat[which(names(dat) != "y")]
+
+expimlranger = Predictor$new(rangermodel, data = Xdat, y = dat$y,
+    predict.function = imlpredictranger)
+
+cpimlrangerx1 = FeatureEffect$new(expimlranger,feature = "x1",method = "pdp+ice", grid.size = 101)
+plot(cpimlrangerx1)
+
+
+# Profils ICE de toutes les observations et 
+# graphes de dépendance partielle pour x1.
+# On utilise une version centrée à la valeur 0.
+
+cpimlrangerx1 = FeatureEffect$new(expimlranger,feature = "x1",method = "pdp+ice", 
+                                  grid.size = 101, center.at=0)
+plot(cpimlrangerx1)
+
+
+cpimlrangerx1x2 = FeatureEffect$new(expimlranger,feature = c("x1","x2"),method = "pdp", 
+                                    grid.size = 101, center.at=0)
+plot(cpimlrangerx1x2)
+
+cpimlrangerx1x3 = FeatureEffect$new(expimlranger,feature = c("x1","x3"),method = "pdp", 
+                                    grid.size = 11, center.at=0)
+plot(cpimlrangerx1x3)
+
+```
+
+
+\newpage
+
+
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+# Rappelez vous qu'on a déjà créé l'objet suivant pour calculer les VIMP plus tôt
+
+# exp_iml = Predictor$new(modelmobile135, data = lgbmobiletrain1, y = mobiletrain$y,
+#    predict.function = iml_predict)
+
+# H-index globaux
+#  Le calcul peut être assez long
+ia = Interaction$new(exp_iml)
+plot(ia)
+
+# H-index pour totpurchases avec chacune des autres variables
+#  Le calcul peut être assez long
+
+iatot=Interaction$new(exp_iml,feature="totpurchases")
+
+plot(iatot)
+
+# Fréquence de numpurchases (échelle originale)
+table(mobiletrain$numpurchases)
+
+# Calcul des valeurs pour le graphe de dépendance partielle conjoint.
+cp_iml = FeatureEffect$new(exp_iml,feature = c("numpurchases","totpurchases"),method = "pdp", 
+    grid.points = list(sort(unique(lgbmobiletrain1$numpurchases)),
+          as.numeric(quantile(lgbmobiletrain1$totpurchases,prob=seq(.1,.9,.1)))))
+
+# Extraire les points pour faire nous-même le graphique
+pts=cp_iml$results[,1:3]
+
+head(pts)
+
+#  Remettre les valeurs dans échelle originale
+pts$numpurchases=round((pts$numpurchases*sd(mobiletrain$numpurchases))+
+                         mean(mobiletrain$numpurchases))
+pts$totpurchases=(pts$totpurchases*sd(mobiletrain$totpurchases))+
+                         mean(mobiletrain$totpurchases)
+
+pts1=pts[pts[,1]==1,3]
+for(i in 2:5) {pts1=cbind(pts1,pts[pts[,1]==i,3])}
+
+matplot(sort(unique(pts$totpurchases)),pts1,type="l",xlab="totpurchases",
+        ylab="prediction",lty=1,col=1:5)
+legend("bottom", legend = c("numpurchases=1", "numpurchases=2",
+        "numpurchases=3","numpurchases=4","numpurchases=5"), col = 1:5, pch=20, pt.cex = 2, 
+        cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+
+```
+
+
+\newpage
+
+
+
+## Exemple de régression avec les données de jeux en ligne (suite)
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+# R
+
+library(iml)
+set.seed(2343)
+# Extraire la ligne correspondant au quantile 0,2 pour les prédictions
+x.interest = lgbmobiletrain1[match(quantile(mobiletrain$y,prob=.2,type=3),mobiletrain$y), ]
+x.interest 
+shapley2 = Shapley$new(exp_iml, x.interest = x.interest,sample.size=100)
+shapley2$results
+plot(shapley2)
+
+library(iml)
+set.seed(2343)
+# Extraire la ligne correspondant au quantile 0,8 pour les prédictions
+x.interest = lgbmobiletrain1[match(quantile(mobiletrain$y,prob=.8,type=3),mobiletrain$y), ]
+x.interest 
+shapley8 = Shapley$new(exp_iml, x.interest = x.interest,sample.size=100)
+shapley8$results
+plot(shapley8)
+
+
+```
+
+
+\newpage
+
+
+## Exemple modifié avec les données churn
+
+
+
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE }
+
+# R
+
+set.seed(76424)
+
+# churntrain et churntest contiennent les données originales 
+#  de l'exemple de churn.
+
+churnrare=rbind(churntrain,churntest)
+
+# Indicatrice temporaire pour l'échantillon train
+churnrare$train=c(rep(1,nrow(churntrain)),rep(0,nrow(churntest)))
+
+# On garde seulement un petit nombre de 1
+churnrare=churnrare[as.logical(
+  rbinom(nrow(churnrare),1,.2*(churnrare$Churn.Value==1)+(churnrare$Churn.Value==0))),]
+
+# Convertir les variables "character" en "factor" pour randomForestSRC
+
+sapply(churnrare, class)[1:5]
+churnrare = as.data.frame(unclass(churnrare),stringsAsFactors = TRUE)
+sapply(churnrare, class)[1:5]
+
+# Création des données d'entrainement et de test
+churnraretrain = churnrare[churnrare$train==1,]
+churnraretest = churnrare[churnrare$train==0,]
+
+# On enlève l'indicatrice de train
+churnraretrain$train=NULL
+churnraretest$train=NULL
+
+# Nombre d'observations, de 1 et proportion de 1.
+dim(churnraretrain)
+table(churnraretrain$Churn.Value)
+mean(churnraretrain$Churn.Value)
+
+dim(churnraretest)
+table(churnraretest$Churn.Value)
+mean(churnraretest$Churn.Value)
+
+# Fonction pour calculer le coût ou gain moyen
+coutgain=function(pred01,y,gcmat=cbind(c(0,1),c(1,0)))
+{
+## INPUT:
+# pred01 = vecteur des prédictions (0-1)
+# y = vecteur des vraies valeurs de Y (0-1)
+# gcmat = matrice de gain ou de coût (2X2)  
+#     (on veut maximiser le gain moyen ou minimiser le coût moyen)
+#	(1,1) = coût (gain) si pred=0 et Y=0
+#	(1,2) = coût (gain) si pred=0 et Y=1
+#	(2,1) = coût (gain) si pred=1 et Y=0
+#	(2,2) = coût (gain) si pred=1 et Y=1
+
+## OUTPUT:
+# le coût (ou gain) moyen 
+
+mean(gcmat[1,1]*(pred01==0)*(y==0)+gcmat[1,2]*(pred01==0)*(y==1)+
+gcmat[2,1]*(pred01==1)*(y==0)+gcmat[2,2]*(pred01==1)*(y==1))
+
+}
+
+# fonction pour optimiser le seuil selon une matrice de coût (ou gain)
+
+seuiloptim=function(pred,y,gcmat=cbind(c(0,1),c(1,0)),cout=TRUE,cutp=seq(0,1,.005),graphe=FALSE)
+{
+## INPUT:
+# pred = vecteur des probabilités estimées. Idéalement provenant d'un échantillon
+#      de validation, d'une validation-croisée ou par OOB.
+# y = vecteur des vraies valeurs de Y (0-1)
+# gcmat = matrice de gain ou de coût (2X2)  
+#     (on veut maximiser le gain moyen ou minimiser le coût moyen)
+#	(1,1) = coût (gain) si pred01=0 et Y=0
+#	(1,2) = coût (gain) si pred01=0 et Y=1
+#	(2,1) = coût (gain) si pred01=1 et Y=0
+#	(2,2) = coût (gain) si pred01=1 et Y=1
+# cout = TRUE si gcmat est une matrice de coût et 
+#        FALSE si c'est une matrice de gain
+# cutp = vecteur des seuils à essayer
+# graphe = TRUE si on veut un graphe des résultats
+
+## OUTPUT
+# liste avec 2 éléments: 
+#	1) data frame avec les seuils et estimations des gains (coûts) moyens	
+#	2) le seuil avec le gain moyen maximum (ou le coût moyen minimum) 
+#               et le gain moyen (coût moyen) associé.
+
+
+nc=length(cutp)
+res=rep(0,nc)
+for(i in 1:nc)
+{
+predi=as.numeric(pred>cutp[i])
+res[i]=mean(gcmat[1,1]*(predi==0)*(y==0)+gcmat[1,2]*(predi==0)*(y==1)+
+gcmat[2,1]*(predi==1)*(y==0)+gcmat[2,2]*(predi==1)*(y==1))
+}
+if(cout==TRUE)
+{
+if(graphe==TRUE){plot(cutp,res,type="l",xlab="seuil",ylab="coût moyen espéré")}
+out=list(NULL,NULL)
+out[[1]]=data.frame("seuil"=cutp,"cout"=res)
+out[[2]]=out[[1]][which.min(res),]
+}
+else
+{
+if(graphe==TRUE){plot(cutp,res,type="l",xlab="seuil",ylab="gain moyen espéré")}
+out=list(NULL,NULL)
+out[[1]]=data.frame("seuil"=cutp,"gain"=res)
+out[[2]]=out[[1]][which.max(res),]
+}
+out
+}
+
+
+# Fonction pour calculer plusieurs critères de performance
+
+manycrit=function(pred,y,seuil,gcmat=cbind(c(0,1),c(1,0)),nom="modele1")
+{
+## INPUT:
+# pred = vecteur des probabilités estimées.
+# y = vecteur des vraies valeurs de Y (0-1)
+# seuil = seuil pour convertir les probabilités
+#   (si pred>seuil, alors pred01=1)
+# gcmat = matrice de gain ou de coût (2X2)  
+#     (on veut maximiser le gain moyen ou minimiser le coût moyen)
+#	(1,1) = coût (gain) si pred=0 et Y=0
+#	(1,2) = coût (gain) si pred=0 et Y=1
+#	(2,1) = coût (gain) si pred=1 et Y=0
+#	(2,2) = coût (gain) si pred=1 et Y=1
+# nom = nom du modèle
+
+## OUTPUT:
+# data frame avec
+#  coutmoyen = cout moyen (ou gain moyen) selon la matrice de cout (gain)
+#  tmc  = taux de mauvaise classification
+#  auc  = aire sous la courbe ROC
+#  sens = sensitivité
+#  spec = spécificité
+#  pred = precision
+#  bac = balanced accuracy
+#  gmean = G-mean
+#  F1 = F1
+#  gmeas = G-measure
+#  seuil = seuil utilisé
+
+library(ROCR)
+
+if(is.factor(y)){y=as.numeric(y)-1}
+pred01=as.numeric(pred>seuil)
+
+procr=ROCR::prediction(pred,y)
+auc=performance(procr,"auc")@y.values[[1]]
+
+tmc=mean((y-pred01)^2)
+sens=sum((pred01==1)*(y==1))/sum(y==1)
+spec=sum((pred01==0)*(y==0))/sum(y==0)
+prec=sum((pred01==1)*(y==1))/sum(pred01==1)
+bac=(sens+spec)/2
+gmean=sqrt(sens*spec)
+F1=2*(sens*prec)/(sens+prec)
+gmeas=sqrt(sens*prec)
+coutmoyen=coutgain(pred01=as.numeric(pred>seuil),y=y,gcmat=gcmat)
+
+out=data.frame("coutmoyen"=coutmoyen,"tmc"=tmc,"auc"=auc,"sens"=sens,
+"spec"=spec,"prec"=prec,"bac"=bac,"gmean"=gmean,"F1"=F1,"gmeas"=gmeas,
+"seuil"=seuil)
+row.names(out)=nom
+out
+}
+  
+fitrare=function(modele,ntree,gcmat,nom,setseed)
+{
+
+set.seed(setseed)  
+if(modele==1){mod=rfsrc(Churn.Value~.,data=churnraretrain,ntree=ntree)}
+if(modele==2){mod=rfsrc(Churn.Value~.,data=churnraretrain,ntree=ntree,splitrule="auc")}
+if(modele==3){mod=imbalanced(Churn.Value~.,data=churnraretrain,ntree=ntree,method="brf")}
+if(modele==4){mod=imbalanced(Churn.Value~.,data=churnraretrain,ntree=ntree,method="brf",splitrule="auc")}
+
+seuilth=gcmat[2,1]/(gcmat[1,2]+gcmat[2,1])
+predmod=predict(mod,newdata=churnraretest)$predicted[,2]
+seuilo=seuiloptim(mod$predicted.oob[,2],churnraretrain$Churn.Value,gcmat=gcmat,
+                   cout=TRUE,cutp=seq(0,1,.001),graphe=TRUE)
+out=manycrit(predmod,churnraretest$Churn.Value,seuilo[[2]]$seuil,gcmat,paste(nom,"seuil optimisé",sep=" "))
+if(modele<3)
+{
+out1=manycrit(predmod,churnraretest$Churn.Value,seuilth,gcmat,paste(nom,"seuil théorique",sep=" "))
+out=rbind(out1,out)
+}
+out
+}
+
+# Matrice de coût
+matcout=rbind(c(0,20),c(1,0))
+
+# Le Y doit être de type factor sinon randomForestSRC va faire une RF de régression
+churnraretrain$Churn.Value=factor(churnraretrain$Churn.Value)
+churnraretest$Churn.Value=factor(churnraretest$Churn.Value)
+
+# Deux benchmarks de base (prédictions toutes 0 et toutes 1)
+out00=manycrit(rep(0,length(churnraretest$Churn.Value)),
+               churnraretest$Churn.Value, .5,matcout, "bench tous 0")
+out01=manycrit(rep(1,length(churnraretest$Churn.Value)),
+               churnraretest$Churn.Value, .5, matcout, "bench tous 1")
+
+# Entrainement des 6 variantes.
+library(randomForestSRC)
+
+out1=fitrare(modele=1,ntree=1000,gcmat=matcout,"RF Gini",4325)
+
+out2=fitrare(modele=2,ntree=1000,gcmat=matcout,"RF AUC",4325)
+
+out3=fitrare(modele=3,ntree=1000,gcmat=matcout,"BRF Gini",4325)
+
+out4=fitrare(modele=4,ntree=1000,gcmat=matcout,"BRF AUC",4325)
+
+# Mettre tous les résultats ensembles
+out20=rbind(out00,out01,out1,out2,out3,out4)
+out20
+
+# Nouvelle matrice de coût
+matcout=rbind(c(0,100),c(1,0))
+
+# Deux benchmarks de base (prédictions toutes 0 et toutes 1)
+out00=manycrit(rep(0,length(churnraretest$Churn.Value)),
+               churnraretest$Churn.Value, .5,matcout, "bench tous 0")
+out01=manycrit(rep(1,length(churnraretest$Churn.Value)),
+               churnraretest$Churn.Value, .5, matcout, "bench tous 1")
+
+# Entrainement des 6 variantes.
+library(randomForestSRC)
+out1=fitrare(modele=1,ntree=1000,gcmat=matcout,"RF Gini",4325)
+out2=fitrare(modele=2,ntree=1000,gcmat=matcout,"RF AUC",4325)
+out3=fitrare(modele=3,ntree=1000,gcmat=matcout,"BRF Gini",4325)
+out4=fitrare(modele=4,ntree=1000,gcmat=matcout,"BRF AUC",4325)
+
+out100=rbind(out00,out01,out1,out2,out3,out4)
+
+out100
+
+```
+
+
+\newpage
+
+
+## Exemple de modélisation incrémentale
+
+
+
+
+```{r echo=TRUE, warning=FALSE}
+
+# R
+
+# répertoire où se trouvent les fichiers
+pa="d:/11000347/Desktop/nouvelle_version_6600_A2022/data/"
+
+# Importations des données
+uplifttrain=read.table(paste(pa,"uplifttrain.txt",sep=""),header=TRUE)
+uplifttest=read.table(paste(pa,"uplifttest.txt",sep=""),header=TRUE)
+
+dim(uplifttrain)
+dim(uplifttest)
+
+# Pour voir les premières lignes du fichier d'entrainement
+head(uplifttrain)
+
+# Il est possible d'avoir des résumés détaillés avec ce package (non exécuté)
+# library(summarytools)
+
+# Pour obtenir un résumé des données directement en format html (non exécuté)
+# view(dfSummary(uplifttrain),file="d:/11000347/Desktop/summaryuplifttrain.html")
+# view(dfSummary(uplifttest),file="d:/11000347/Desktop/summaryuplifttest.html")
+
+# Les résultats se trouvent dans les fichiers "summaryuplifttrain.html" et 
+#    "summaryuplifttest.html"" fournis avec le matériel du cours
+
+# Distribution de Y dans les groupes traitement et contrôle
+table(uplifttrain$y[uplifttrain$w==0])
+table(uplifttrain$y[uplifttrain$w==1])
+
+# Retirer "cate" des data frame et la mettre dans des fichiers à part
+
+uplifttraincate=uplifttrain[,c("cate")]
+uplifttestcate=uplifttest[,c("cate")]
+
+uplifttrain=uplifttrain[,c("x1","x2","x3","x4","x5","x6","x7","x8","w","y")]
+uplifttrain=uplifttrain[,c("x1","x2","x3","x4","x5","x6","x7","x8","w","y")]
+
+# Résumé de "cate" dans l'échantillon d'entrainement
+
+summary(uplifttraincate)
+
+# Fonction pour calculer la performance (MAE et Qini)
+perflift=function(w,y,pred,cate,nom)
+{
+# w = traitement (0-1)
+# y = vrai y (0-1)
+# pred = estimation du cate selon un modèle
+# cate = vraie valeur du cate (seulement disponible avec des
+#		données simulées)
+# nom = nom du modèle
+
+library(tools4uplift)
+
+mae=mean(abs(cate-pred))
+qini=NA
+if(sd(pred)>0)
+{
+perfm=PerformanceUplift(data = data.frame("w"=w,"y"=y,"pred"=pred), treat = "w",
+outcome = "y", prediction = "pred", equal.intervals = TRUE, nb.group = 50)
+qini=QiniArea(perfm)
+}
+
+out=data.frame(mae,qini)
+names(out)=c("MAE","QINI")
+row.names(out)=nom
+out
+	 
+}
+
+# Benchmark simple
+
+# Proportion de clients ayant acheté le produit dans le groupe traitement moins
+# proportion de clients ayant acheté le produit dans le groupe contrôle
+
+benchcate=mean(uplifttrain$y[uplifttrain$w==1]) - mean(uplifttrain$y[uplifttrain$w==0])
+benchcate
+predbench=rep(benchcate,nrow(uplifttest))
+
+# Performance pour ce benchmark
+resuplift=perflift(uplifttest$w,uplifttest$y,predbench,uplifttestcate,"Benchmark")
+
+resuplift
+
+# T-learner
+
+library(ranger)
+
+# RF avec le groupe contrôle
+set.seed(342)
+rf0=ranger(factor(y)~x1+x2+x3+x4+x5+x6+x7+x8,data=uplifttrain[uplifttrain$w==0,],probability = TRUE)
+
+# RF avec le groupe traitement
+set.seed(342)
+rf1=ranger(factor(y)~x1+x2+x3+x4+x5+x6+x7+x8,data=uplifttrain[uplifttrain$w==1,],probability = TRUE)
+
+# Prédictions de Y sur les données test pour les 2 RF
+predrf0=predict(rf0,data=uplifttest)[[1]][,2]
+predrf1=predict(rf1,data=uplifttest)[[1]][,2]
+
+# Prédictions du CATE, la différence entre les deux
+predrfTcate=predrf1-predrf0
+
+# Performance sur les données test
+resuplift=rbind(resuplift,perflift(uplifttest$w,uplifttest$y,predrfTcate,uplifttestcate,
+                                  "T-learner (RF ranger)"))
+resuplift
+
+# S-learner
+
+set.seed(342)
+# RF avec toutes les observations et incluant le traitement W comme variable
+rf01=ranger(factor(y)~x1+x2+x3+x4+x5+x6+x7+x8+w,data=uplifttrain,probability = TRUE)
+
+# sauvegarder les vraies valeurs de W pour les remettre plus tard.
+uplifttesttruew=uplifttest$w
+
+# Prédictions lorsque W=0
+uplifttest$w=0
+predrf010=predict(rf01,data=uplifttest)[[1]][,2]
+# Prédictions lorsque W=1
+uplifttest$w=1
+predrf011=predict(rf01,data=uplifttest)[[1]][,2]
+
+# Prédictions du CATE, la différence entre les deux
+predrfScate=predrf011-predrf010
+
+# On remet les vraies valeurs pour W.
+uplifttest$w=uplifttesttruew
+
+# Performance sur les données test
+resuplift=rbind(resuplift,perflift(uplifttest$w,uplifttest$y,predrfScate,uplifttestcate,
+                                   "S-learner (RF ranger)"))
+
+resuplift
+
+# X-learner
+
+# Fichier d'entrainement avec clients contrôle seulement 
+uplifttrainw0=uplifttrain[uplifttrain$w==0,]
+
+# Fichier d'entrainement avec les clients traitement seulement
+uplifttrainw1=uplifttrain[uplifttrain$w==1,]
+
+# Prédictions des données d'entrainement du groupe traitement avec
+#    la RF construite avec le groupe contrôle (voir code pour T-learner)
+predrf0w1=predict(rf0,data=uplifttrainw1)[[1]][,2]
+
+# Prédictions des données d'entrainement du groupe contrôle avec
+#    la RF construite avec le groupe traitement(voir code pour T-learner)
+predrf1w0=predict(rf1,data=uplifttrainw0)[[1]][,2]
+
+# Imputation des effets de traitement pour le groupe traitement
+uplifttrainw1$yw1=uplifttrainw1$y - predrf0w1
+
+# Imputation des effets de traitement pour le groupe contrôle
+uplifttrainw0$yw0= predrf1w0 - uplifttrainw0$y
+
+# RF pour le groupe traitement avec les imputations comme variable cible
+set.seed(342)
+rfw1=ranger(yw1~x1+x2+x3+x4+x5+x6+x7+x8,data=uplifttrainw1)
+
+# RF pour le groupe contrôle avec les imputations comme variable cible
+set.seed(342)
+rfw0=ranger(yw0~x1+x2+x3+x4+x5+x6+x7+x8,data=uplifttrainw0)
+
+# Prédictions pour les données test
+#   La fonction de propension est connue (pW(x)=0,1)
+predrfXcate=.9*predict(rfw0,data=uplifttest)[[1]] + .1*predict(rfw1,data=uplifttest)[[1]] 
+
+# Performance sur les données test
+resuplift=rbind(resuplift,perflift(uplifttest$w,uplifttest$y,predrfXcate,uplifttestcate,
+                                   "X-learner (RF ranger)"))
+
+resuplift
+
+# Méthode basée sur une transformation.
+
+# Création de la nouvelle variable T.
+uplifttrain$T=uplifttrain$y*((uplifttrain$w/.1) - ((1-uplifttrain$w)/.9))
+
+# Pour vérifier que E[T] est bien proche de la moyenne du vrai CATE 
+mean(uplifttrain$T)
+mean(uplifttraincate)
+
+# Distribution de la nouvelle variable T
+table(uplifttrain$T)
+
+# RF de classification pour prédire T
+set.seed(342)
+rfTrans=ranger(factor(T)~x1+x2+x3+x4+x5+x6+x7+x8,data=uplifttrain,probability = TRUE)
+
+# Probabilités estimées sur l'échantillon test.
+predrfTranscate=predict(rfTrans,data=uplifttest)[[1]]
+
+predrfTranscate[1:5,]
+
+# Calcul de l'estimation de la moyenne de T
+predrfTranscate=-1.111111*predrfTranscate[,1] + 10*predrfTranscate[,3]
+
+summary(predrfTranscate)
+sum(predrfTranscate<0)
+sum(predrfTranscate>1)
+
+# On ramène les valeurs estimées plus grandes que 1 à 1
+#  mais on leur retranche un très petit nombre aléatoire pour
+#  qu'elles soient toutes inférieures à 1 et différentes.
+#  Ceci est pour qu'il soit possible de calculer le Qini.
+set.seed(342)
+predrfTranscate=predrfTranscate*(predrfTranscate<=1) + 
+  (predrfTranscate>1)*(1-runif(length(predrfTranscate))/100000)
+
+# Performance sur les données test
+resuplift=rbind(resuplift,perflift(uplifttest$w,uplifttest$y,predrfTranscate,uplifttestcate,
+                                   "Transformation (RF ranger)"))
+
+resuplift
+
+# Méthode basée sur des arbres avec un critère de split spécialisé.
+
+library(grf)
+
+# Construction de la forêt causale
+set.seed(342)
+grfcate=causal_forest(uplifttrain[,c("x1","x2","x3","x4","x5","x6","x7","x8")], uplifttrain$y, uplifttrain$w)
+
+# Prédictions sur les données test
+predgrfcate = predict(grfcate, uplifttest[,c("x1","x2","x3","x4","x5","x6","x7","x8")])[,1]
+
+# Performance sur les données test
+resuplift=rbind(resuplift,perflift(uplifttest$w,uplifttest$y,predgrfcate,uplifttestcate,"GRF"))
+
+# Résultats finaux avec toutes les méthodes
+resuplift
+
+# Fonction pour tracer les courbes Qini de plusieurs modèles.
+manyqini=function(w,y,pred,noms)
+{
+# w = traitement (0-1)
+# y = vrai y (0-1)
+# pred = estimations du cate selon un modèle (matrice avec une colonne par modèle)
+# noms = nom des modèles
+
+library(tools4uplift)
+nm=ncol(pred)
+out=rep(0,nm)
+ptsy=matrix(NA, nrow = 50, ncol = 0)
+for(i in 1:nm)
+{
+perfm=PerformanceUplift(data = data.frame("w"=w,"y"=y,"pred"=pred[,i]), treat = "w",
+outcome = "y", prediction = "pred", equal.intervals = TRUE, nb.group = 50)
+out[i]=qini=QiniArea(perfm)
+ptsy=cbind(ptsy,perfm$inc_uplift)
+}
+
+matplot(100*seq(.02,1,.02),ptsy,type="l",col = 2:(nm+1), lty=2:(nm+1),
+        xlab="Proportion de la population ciblée (%)",ylab="Uplift incrémental (%)")
+segments(0,0,100,ptsy[50,1])
+legend("bottomright", legend = noms, 
+col = 2:(nm+1), lty=2:(nm+1), pt.cex = 2, 
+  cex = 1.0,  text.col = "black",  horiz = F ,  inset = c(0.1, 0.1))
+
+out=data.frame(out)
+names(out)="QINI"
+row.names(out)=noms
+
+out
+}
+
+# Traçons les courbes
+manyqini(uplifttest$w,uplifttest$y,cbind(predrfTcate,predrfScate,predrfXcate,
+                      predrfTranscate,predgrfcate),row.names(resuplift)[-1])
+
+
+
+```
+
+
+
+
+  
+
+
