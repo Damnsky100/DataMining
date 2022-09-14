@@ -1,4 +1,0 @@
-"0","# Pour voir les premières lignes du fichier d'entrainement"
-"0","head(datrain)"
-"2","Error in head(datrain) : object 'datrain' not found
-"

@@ -248,12 +248,13 @@ reschurn
 
 
 
-```{r echo=TRUE, warning=FALSE}
 
+
+```{r echo=TRUE, warning=FALSE}
 # R
 
 # répertoire où se trouvent les fichiers
-pa="d:/11000347/Desktop/nouvelle_version_6600_A2022/data/"
+pa="~/Desktop/Data_Mining/"
 
 # Importations des données
 mobiletrain=read.table(paste(pa,"clv_mobile_data_train.txt",sep=""),header=TRUE)
@@ -261,11 +262,17 @@ mobiletest=read.table(paste(pa,"clv_mobile_data_test.txt",sep=""),header=TRUE)
 
 dim(mobiletrain)
 dim(mobiletest)
+```
 
+
+```{r echo=TRUE, warning=FALSE}
 # Pour voir les premières lignes du fichier d'entrainement
 
 head(mobiletrain)
 
+```
+
+```{r echo=TRUE, warning=FALSE}
 # Convertir "difflevel" et "country" en facteurs.
 mobiletrain$difflevel=factor(mobiletrain$difflevel)
 mobiletrain$country=factor(mobiletrain$country)
@@ -274,7 +281,11 @@ mobiletest$country=factor(mobiletest$country)
 
 # On combine les deux fichiers afin d'avoir un résumé de toutes les données
 mobile=rbind(mobiletrain,mobiletest)
+mobile
+```
 
+
+```{r echo=TRUE, warning=FALSE}
 # Pour obtenir un résumé des données directement en format html (non exécuté)
 # library(summarytools)
 # view(dfSummary(mobile))
@@ -309,6 +320,12 @@ out
 # Performance pour le premier benchmark qui utilise la moyenne de Y
 resmobile = perfcont(mobiletest$y,mean(mobiletrain$y),
                      mean(mobiletrain$y),c("moyenne de Y"))
+
+resmobile
+```
+
+
+```{r echo=TRUE, warning=FALSE}
 
 # Performance pour le second benchmark qui utilise la médiane de Y
 

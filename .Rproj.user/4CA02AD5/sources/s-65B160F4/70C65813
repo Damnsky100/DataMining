@@ -3,9 +3,9 @@
     "path": "~/Desktop/Data_Mining/Homework.Rmd",
     "project_path": "Homework.Rmd",
     "type": "r_markdown",
-    "hash": "2363324987",
+    "hash": "0",
     "contents": "",
-    "dirty": false,
+    "dirty": true,
     "created": 1662751808066.0,
     "source_on_save": false,
     "relative_order": 3,
@@ -14,15 +14,15 @@
         "chunk_output_type": "inline",
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "93,32",
-        "scrollLine": "89"
+        "cursorPosition": "64,0",
+        "scrollLine": "57"
     },
     "folds": "",
     "lastKnownWriteTime": 1662757827,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1662757827409,
+    "last_content_update": 1662811849045,
     "read_only": false,
     "read_only_alternatives": []
 }

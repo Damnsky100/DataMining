@@ -65,9 +65,9 @@ summary(reg_basic)
 
 # Obtenir les prédicions (probabilité estimées) sur les données test
 predic_reg = predict(reg_basic, newdata = datest$y)
-df_reg_data = ceiling(predic_reg)
+df_reg_data = round(predic_reg)
 df_reg = data.frame("id"=datest$id, "y"= df_reg_data)
-write.csv(df_reg,paste(pa,"reg_benchmark.csv"),row.names = FALSE)
+write.csv(df_reg,paste(pa,"reg_benchmark2.csv"),row.names = FALSE)
 ```
 
 
